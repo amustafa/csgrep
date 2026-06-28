@@ -6,25 +6,16 @@ csgrep searches through `~/.claude/projects/` session files, supporting regex, f
 
 ## Installation
 
-### From source
-
 ```bash
 git clone https://github.com/amustafa/csgrep.git
 cd csgrep
 make build
 
-# Symlink to PATH
+# Symlink to your PATH
 make link          # creates ~/.local/bin/csgrep
-
-# Or install directly
-go install github.com/amustafa/csgrep@latest
 ```
 
-### From release
-
-Download a prebuilt binary from the [releases page](https://github.com/amustafa/csgrep/releases).
-
-Requires Go 1.21+ to build from source.
+Requires Go 1.21+.
 
 ## Quick Start
 
