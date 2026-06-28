@@ -1,0 +1,6 @@
+# Codev
+.agent-farm/
+.consult/
+codev/.update-hashes.json
+.builders/
+.architect-role.md

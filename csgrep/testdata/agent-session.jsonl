@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"You are a security expert reviewing Go diff."},"cwd":"/home/user/project","entrypoint":"agent","timestamp":"2026-06-12T14:00:00Z","sessionId":"test-session-003","uuid":"a1","parentUuid":null,"isSidechain":false}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll review the diff for security issues."}]},"cwd":"/home/user/project","entrypoint":"agent","timestamp":"2026-06-12T14:00:10Z","sessionId":"test-session-003","uuid":"a2","parentUuid":"a1","isSidechain":false}
