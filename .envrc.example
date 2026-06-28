@@ -1,0 +1,3 @@
+# Directory where `make link` installs the csgrep symlink.
+# Must be on your $PATH.
+export CSGREP_LINK_DIR="${HOME}/.local/bin"

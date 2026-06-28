@@ -7,15 +7,22 @@ csgrep searches through `~/.claude/projects/` session files, supporting regex, f
 ## Installation
 
 ```bash
-git clone https://github.com/amustafa/csgrep.git
-cd csgrep
-make build
-
-# Symlink to your PATH
-make link          # creates ~/.local/bin/csgrep
+go install github.com/amustafa/csgrep@latest
 ```
 
 Requires Go 1.21+.
+
+### Development
+
+If you want to hack on csgrep locally:
+
+```bash
+git clone https://github.com/amustafa/csgrep.git
+cd csgrep
+cp .envrc.example .envrc   # configure CSGREP_LINK_DIR, then `direnv allow`
+make build                 # build to bin/csgrep
+make link                  # symlink to CSGREP_LINK_DIR
+```
 
 ## Quick Start
 

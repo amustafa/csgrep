@@ -1,7 +1,8 @@
 BINARY := csgrep
 BIN_DIR := bin
+LINK_DIR ?= $(CSGREP_LINK_DIR)
 
-.PHONY: build clean install link
+.PHONY: build clean link
 
 build:
 	@mkdir -p $(BIN_DIR)
@@ -10,10 +11,7 @@ build:
 clean:
 	rm -rf $(BIN_DIR)
 
-install: build
-	cp $(BIN_DIR)/$(BINARY) $(GOPATH)/bin/$(BINARY) 2>/dev/null || \
-	cp $(BIN_DIR)/$(BINARY) $(HOME)/go/bin/$(BINARY)
-
 link: build
-	@mkdir -p $(HOME)/.local/bin
-	ln -sf $(CURDIR)/$(BIN_DIR)/$(BINARY) $(HOME)/.local/bin/$(BINARY)
+	@if [ -z "$(LINK_DIR)" ]; then echo "Error: CSGREP_LINK_DIR is not set — copy .envrc.example to .envrc and configure it" >&2; exit 1; fi
+	@mkdir -p $(LINK_DIR)
+	ln -sf $(CURDIR)/$(BIN_DIR)/$(BINARY) $(LINK_DIR)/$(BINARY)
