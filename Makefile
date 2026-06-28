@@ -2,7 +2,7 @@ BINARY := csgrep
 BIN_DIR := bin
 LINK_DIR ?= $(CSGREP_LINK_DIR)
 
-.PHONY: build clean link
+.PHONY: build clean link setup
 
 build:
 	@mkdir -p $(BIN_DIR)
@@ -23,3 +23,16 @@ link: build
 	fi
 	@mkdir -p $(LINK_DIR)
 	ln -sf $(CURDIR)/$(BIN_DIR)/$(BINARY) $(LINK_DIR)/$(BINARY)
+
+setup:
+	@if [ ! -f .envrc ]; then \
+		cp .envrc.example .envrc; \
+		echo "Created .envrc from .envrc.example"; \
+	else \
+		echo ".envrc already exists, skipping"; \
+	fi
+	@command -v direnv >/dev/null 2>&1 && direnv allow || echo "Run 'source .envrc' to load environment (or install direnv)"
+	@echo ""
+	@echo "Done. Next steps:"
+	@echo "  make build    # compile"
+	@echo "  make link     # symlink to your PATH"

@@ -14,15 +14,17 @@ Requires Go 1.21+.
 
 ### Development
 
-If you want to hack on csgrep locally:
-
 ```bash
 git clone https://github.com/amustafa/csgrep.git
 cd csgrep
-cp .envrc.example .envrc   # configure CSGREP_LINK_DIR, then `direnv allow`
-make build                 # build to bin/csgrep
+make setup                 # creates .envrc, loads env
+make build                 # compile to bin/csgrep
 make link                  # symlink to CSGREP_LINK_DIR
 ```
+
+Edit `.envrc` to set `CSGREP_LINK_DIR` to a directory on your `$PATH` (defaults to `~/.local/bin`).
+
+This project uses [Codev](https://github.com/cluesmith/codev) for AI-assisted development workflows. The `codev/` directory contains specs, plans, and reviews. See `CLAUDE.md` for available protocols and conventions.
 
 ## Quick Start
 
