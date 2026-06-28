@@ -1,3 +1,7 @@
 # Directory where `make link` installs the csgrep symlink.
 # Must be on your $PATH.
 export CSGREP_LINK_DIR="${HOME}/.local/bin"
+
+# Override the Claude Code projects directory.
+# Defaults: ~/.claude/projects (Linux/macOS), %APPDATA%\claude\projects (Windows)
+# export CSGREP_PROJECTS_DIR="${HOME}/.claude/projects"

@@ -4,23 +4,40 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 var projectsBase string
 
 func init() {
+	if env := os.Getenv("CSGREP_PROJECTS_DIR"); env != "" {
+		projectsBase = env
+		return
+	}
+	projectsBase = defaultProjectsDir()
+}
+
+func defaultProjectsDir() string {
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "claude", "projects")
+		}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not determine home directory: %v\n", err)
 		home = "."
 	}
-	projectsBase = filepath.Join(home, ".claude", "projects")
+	return filepath.Join(home, ".claude", "projects")
 }
 
 func encodeDirPath(cwd string) string {
 	cwd = filepath.Clean(cwd)
-	encoded := strings.ReplaceAll(cwd, "/", "-")
+	encoded := strings.ReplaceAll(cwd, string(filepath.Separator), "-")
+	if runtime.GOOS == "windows" {
+		encoded = strings.ReplaceAll(encoded, ":", "-")
+	}
 	encoded = strings.ReplaceAll(encoded, ".", "-")
 	encoded = strings.TrimPrefix(encoded, "-")
 	return "-" + encoded
@@ -57,8 +74,12 @@ func FindFiles(filter Filter) []string {
 	return findAllFiles()
 }
 
+func isRootDir(dir string) bool {
+	return dir == "/" || dir == "." || dir == filepath.VolumeName(dir)+string(filepath.Separator)
+}
+
 func findFilesForDir(dir string) []string {
-	for dir != "/" && dir != "." {
+	for !isRootDir(dir) {
 		sessDir := findSessionsDir(dir)
 		files := globJSONL(sessDir)
 		if len(files) > 0 {

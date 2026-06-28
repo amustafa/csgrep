@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -161,7 +162,7 @@ func findBestSessionForCWD(cwd string) string {
 	}
 
 	dir := cwd
-	for dir != "/" && dir != "." {
+	for !isRootDir(dir) {
 		sessDir := findSessionsDir(dir)
 		files := globJSONL(sessDir)
 		if len(files) > 0 {
@@ -190,12 +191,7 @@ func newestFile(files []string) string {
 }
 
 func containsArg(args []string, target string) bool {
-	for _, a := range args {
-		if a == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, target)
 }
 
 func containsArgs(args []string, a, b string) bool {
