@@ -1,9 +1,0 @@
-bin/
-dist/
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-*.test
-*.out

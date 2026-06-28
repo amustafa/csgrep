@@ -4,3 +4,13 @@
 codev/.update-hashes.json
 .builders/
 .architect-role.md
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
