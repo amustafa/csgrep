@@ -38,6 +38,9 @@ csgrep list -n 10
 
 # View a full session conversation
 csgrep show a1b2c3d4
+
+# See which Claude Code sessions are running right now
+csgrep live
 ```
 
 ## Default Scope
@@ -88,6 +91,21 @@ csgrep list --interactive                # only interactive CLI sessions
 csgrep list --after 1w -n 10             # last week, top 10
 csgrep list --json                       # JSON output
 csgrep list --path                       # show full JSONL file paths
+```
+
+### Live
+
+```bash
+csgrep live [flags]
+```
+
+Show Claude Code sessions attached to running processes. Scans `/proc` for active `claude` processes and matches them to session files.
+
+```bash
+csgrep live                              # list all active sessions
+csgrep live -d ftron                     # active sessions for a project
+csgrep live --json                       # JSON output with PIDs
+csgrep live | csgrep "auth"              # search within active sessions
 ```
 
 ### Show
