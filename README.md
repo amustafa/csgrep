@@ -1,8 +1,8 @@
-# csgrep
+# csgrep — Search your Claude Code history
 
-A fast search tool for Claude Code session transcripts. Think [ripgrep](https://github.com/BurntSushi/ripgrep), but for your Claude Code conversation history.
+Ever wonder what you asked Claude last week, or need to find that migration plan from a few sessions ago? Claude Code stores every conversation as JSONL files, but they're not easy to search through by hand.
 
-csgrep searches through `~/.claude/projects/` session files, supporting regex, fixed-string, and fuzzy matching with colored output, smart-case defaults, and parallel scanning.
+csgrep is a fast CLI tool that searches across all your Claude Code sessions — regex, fixed-string, or fuzzy — with colored output, smart-case, and parallel scanning. Think [ripgrep](https://github.com/BurntSushi/ripgrep), but for `~/.claude/projects/`.
 
 ## Installation
 
