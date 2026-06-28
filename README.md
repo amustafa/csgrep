@@ -72,6 +72,9 @@ csgrep "config" --interactive            # only interactive CLI sessions
 csgrep "migration" -C 2                  # show 2 messages of context
 csgrep "auth" --all                      # include tool call content
 csgrep "deploy" --json                   # JSON output for scripting
+csgrep "auth" --sort score:desc          # sort by match score
+csgrep "auth" --group-by project_dir     # group results by project
+csgrep "auth" --no-group-by              # flat output, no grouping
 ```
 
 ### List
@@ -122,6 +125,8 @@ csgrep show a1b2c3d4 "auth"              # highlight matches
 csgrep show a1b2c3d4 --role user         # only user messages
 csgrep show a1b2c3d4 --all               # include tool calls/results
 csgrep show a1b2c3d4 --json              # JSON output
+csgrep "auth" | csgrep show              # show sessions from piped search
+csgrep list -n 3 | csgrep show           # show sessions from piped list
 ```
 
 ## Flags Reference
@@ -153,6 +158,10 @@ csgrep show a1b2c3d4 --json              # JSON output
 | `--before-context N` | `-B` | Show N messages before each match |
 | `--all` | `-a` | Include tool call/result content in search |
 | `--threshold` | | Fuzzy match threshold, 0.0–1.0 (default: 0.3) |
+| `--group-by <field>` | | Group results by `session_id`, `project_dir`, or `role` (default: `session_id`) |
+| `--no-group-by` | | Disable grouping, output flat results |
+| `--sort <spec>` | | Sort by field:direction pairs (e.g. `timestamp:asc,score:desc`) |
+| `--sessions` | | Pipe mode: use piped input as session scope, search all messages |
 
 ### Show Flags
 
