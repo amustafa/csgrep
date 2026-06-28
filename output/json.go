@@ -19,17 +19,20 @@ type jsonMatch struct {
 	Score      float64  `json:"score"`
 	Offsets    [][2]int `json:"offsets,omitempty"`
 	Path       string   `json:"path,omitempty"`
+	FilePath   string   `json:"file_path,omitempty"`
+	ToolName   string   `json:"tool_name,omitempty"`
 }
 
 type jsonSession struct {
-	SessionID      string `json:"session_id"`
-	ProjectDir     string `json:"project_dir"`
-	FirstTimestamp string `json:"first_timestamp"`
-	LastTimestamp   string `json:"last_timestamp"`
-	FirstMessage   string `json:"first_message"`
-	LastMessage    string `json:"last_message"`
-	Entrypoint     string `json:"entrypoint,omitempty"`
-	Path           string `json:"path"`
+	SessionID      string   `json:"session_id"`
+	ProjectDir     string   `json:"project_dir"`
+	FirstTimestamp string   `json:"first_timestamp"`
+	LastTimestamp   string   `json:"last_timestamp"`
+	FirstMessage   string   `json:"first_message"`
+	LastMessage    string   `json:"last_message"`
+	Entrypoint     string   `json:"entrypoint,omitempty"`
+	Path           string   `json:"path"`
+	ArtifactPaths  []string `json:"artifact_paths,omitempty"`
 }
 
 type jsonMessage struct {
@@ -37,6 +40,8 @@ type jsonMessage struct {
 	Text      string `json:"text"`
 	Timestamp string `json:"timestamp"`
 	LineNum   int    `json:"line_num"`
+	FilePath  string `json:"file_path,omitempty"`
+	ToolName  string `json:"tool_name,omitempty"`
 }
 
 type jsonConversation struct {
@@ -66,6 +71,8 @@ func toJSONMatch(m search.Match) jsonMatch {
 		Score:      m.Score,
 		Offsets:    m.Offsets,
 		Path:       m.Session.Path,
+		FilePath:   m.Message.FilePath,
+		ToolName:   m.Message.ToolName,
 	}
 }
 
@@ -87,6 +94,7 @@ func JSONSessions(w io.Writer, sessions []session.Session) error {
 			LastMessage:    s.LastMessage,
 			Entrypoint:     s.Entrypoint,
 			Path:           s.Path,
+			ArtifactPaths:  s.ArtifactPaths,
 		})
 	}
 	return enc.Encode(items)
@@ -131,6 +139,8 @@ func JSONMessages(w io.Writer, s *session.Session, messages []session.Message) e
 			Text:      m.Text,
 			Timestamp: m.Timestamp.Format("2006-01-02T15:04:05Z"),
 			LineNum:   m.LineNum,
+			FilePath:  m.FilePath,
+			ToolName:  m.ToolName,
 		})
 	}
 	return enc.Encode(conv)

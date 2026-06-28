@@ -1,30 +1,37 @@
 package session
 
-import "time"
+import (
+	"time"
+
+	"github.com/amustafa/csgrep/include"
+)
 
 type Message struct {
 	Role      string
 	Text      string
 	Timestamp time.Time
 	LineNum   int
+	FilePath  string
+	ToolName  string
 }
 
 type Session struct {
-	ID           string
-	Path         string
-	ProjectDir   string
-	CWD          string
-	Entrypoint   string
-	FirstMessage string
-	FirstTime    time.Time
-	LastMessage  string
-	LastTime     time.Time
-	Messages     []Message
+	ID            string
+	Path          string
+	ProjectDir    string
+	CWD           string
+	Entrypoint    string
+	FirstMessage  string
+	FirstTime     time.Time
+	LastMessage   string
+	LastTime      time.Time
+	Messages      []Message
+	ArtifactPaths []string
 }
 
 type ParseOptions struct {
-	MetadataOnly       bool
-	IncludeToolContent bool
+	MetadataOnly bool
+	Include      include.IncludeSet
 }
 
 type Filter struct {

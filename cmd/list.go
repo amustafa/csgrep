@@ -5,11 +5,14 @@ import (
 	"os"
 	"sort"
 
+	"github.com/amustafa/csgrep/include"
 	"github.com/amustafa/csgrep/output"
 	"github.com/amustafa/csgrep/pipe"
 	"github.com/amustafa/csgrep/session"
 	"github.com/spf13/cobra"
 )
+
+var flagHas string
 
 var listCmd = &cobra.Command{
 	Use:   "list",
@@ -24,11 +27,14 @@ message (after the last /clear). Results are sorted by most recent first.`,
   csgrep list -d ftron                     Substring match on project dir
   csgrep list --interactive                Only interactive CLI sessions
   csgrep list --after 1w -n 10             Last week's sessions, top 10
+  csgrep list --has artifacts              Only sessions that wrote files
+  csgrep list --include artifacts          Show artifact summary per session
   csgrep list --json                       Machine-readable output`,
 	RunE: runList,
 }
 
 func init() {
+	listCmd.Flags().StringVar(&flagHas, "has", "", "filter to sessions containing: artifacts")
 	rootCmd.AddCommand(listCmd)
 }
 
@@ -36,11 +42,33 @@ func runList(cmd *cobra.Command, args []string) error {
 	applyColorConfig()
 	filter := buildFilter()
 
+	needArtifacts := false
+	if flagHas == "artifacts" {
+		needArtifacts = true
+	} else if flagHas != "" {
+		return fmt.Errorf("unknown --has value %q (valid: artifacts)", flagHas)
+	}
+
+	var listInc include.IncludeSet
+	if flagInclude != "" {
+		var err error
+		listInc, err = include.Parse(flagInclude)
+		if err != nil {
+			return err
+		}
+		if listInc.Artifacts {
+			needArtifacts = true
+		}
+	}
+
 	files := session.FindFiles(filter)
 	fmt.Fprintf(os.Stderr, "Scanning %d sessions...\n", len(files))
 
 	parseOpts := session.ParseOptions{
-		MetadataOnly: true,
+		MetadataOnly: !needArtifacts,
+	}
+	if needArtifacts {
+		parseOpts.Include = include.IncludeSet{Artifacts: true}
 	}
 
 	var sessions []session.Session
@@ -50,6 +78,9 @@ func runList(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		if !filter.Matches(s) {
+			continue
+		}
+		if flagHas == "artifacts" && len(s.ArtifactPaths) == 0 {
 			continue
 		}
 		sessions = append(sessions, *s)
@@ -63,12 +94,15 @@ func runList(cmd *cobra.Command, args []string) error {
 		sessions = sessions[:flagLimit]
 	}
 
+	showArtifacts := listInc.Artifacts
+
 	useJSON := flagJSON || pipe.StdoutIsPiped()
 	if useJSON {
 		return output.JSONSessions(os.Stdout, sessions)
 	}
 	output.TerminalSessions(os.Stdout, sessions, output.Config{
-		ShowPath: flagShowPath,
+		ShowPath:      flagShowPath,
+		ShowArtifacts: showArtifacts,
 	})
 
 	fmt.Fprintf(os.Stderr, "%d sessions found\n", len(sessions))

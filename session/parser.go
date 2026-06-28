@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/amustafa/csgrep/include"
 )
 
 var (
@@ -30,10 +32,33 @@ type messageEnvelope struct {
 }
 
 type contentBlock struct {
-	Type  string          `json:"type"`
-	Text  string          `json:"text"`
-	Input json.RawMessage `json:"input"`
-	Name  string          `json:"name"`
+	Type    string          `json:"type"`
+	Text    string          `json:"text"`
+	Content json.RawMessage `json:"content"`
+	Input   json.RawMessage `json:"input"`
+	Name    string          `json:"name"`
+}
+
+type writeInput struct {
+	FilePath string `json:"file_path"`
+	Content  string `json:"content"`
+}
+
+type editInput struct {
+	FilePath  string `json:"file_path"`
+	OldString string `json:"old_string"`
+	NewString string `json:"new_string"`
+}
+
+type notebookEditInput struct {
+	NotebookPath string `json:"notebook_path"`
+	NewSource    string `json:"new_source"`
+}
+
+var artifactTools = map[string]bool{
+	"Write":        true,
+	"Edit":         true,
+	"NotebookEdit": true,
 }
 
 func CleanText(s string) string {
@@ -44,7 +69,7 @@ func CleanText(s string) string {
 	return s
 }
 
-func extractText(raw json.RawMessage, includeToolContent bool) string {
+func extractTextOnly(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
 	}
@@ -58,26 +83,132 @@ func extractText(raw json.RawMessage, includeToolContent bool) string {
 	if err := json.Unmarshal(raw, &blocks); err == nil {
 		var parts []string
 		for _, b := range blocks {
-			switch b.Type {
-			case "text":
+			if b.Type == "text" {
 				if t := strings.TrimSpace(b.Text); t != "" {
 					parts = append(parts, t)
-				}
-			case "tool_use":
-				if includeToolContent && len(b.Input) > 0 {
-					parts = append(parts, string(b.Input))
-				}
-			case "tool_result":
-				if includeToolContent {
-					if t := strings.TrimSpace(b.Text); t != "" {
-						parts = append(parts, t)
-					}
 				}
 			}
 		}
 		return strings.Join(parts, " ")
 	}
 	return ""
+}
+
+func extractMessages(raw json.RawMessage, role string, ts time.Time, lineNum int, inc include.IncludeSet) []Message {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if t := strings.TrimSpace(s); t != "" {
+			return []Message{{Role: role, Text: t, Timestamp: ts, LineNum: lineNum}}
+		}
+		return nil
+	}
+
+	var blocks []contentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil
+	}
+
+	var msgs []Message
+	var textParts []string
+
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			if t := strings.TrimSpace(b.Text); t != "" {
+				textParts = append(textParts, t)
+			}
+		case "tool_use":
+			if artifactTools[b.Name] && inc.Artifacts {
+				if m := extractArtifact(b, ts, lineNum, inc); m != nil {
+					msgs = append(msgs, *m)
+				}
+			} else if inc.ToolOutputs && len(b.Input) > 0 {
+				textParts = append(textParts, string(b.Input))
+			}
+		case "tool_result":
+			if inc.ToolOutputs {
+				text := strings.TrimSpace(b.Text)
+				if text == "" && len(b.Content) > 0 {
+					var s string
+					if err := json.Unmarshal(b.Content, &s); err == nil {
+						text = strings.TrimSpace(s)
+					}
+				}
+				if text != "" {
+					msgs = append(msgs, Message{
+						Role:      "tool-output",
+						Text:      text,
+						ToolName:  b.Name,
+						Timestamp: ts,
+						LineNum:   lineNum,
+					})
+				}
+			}
+		}
+	}
+
+	if text := strings.Join(textParts, " "); text != "" {
+		msgs = append([]Message{{Role: role, Text: text, Timestamp: ts, LineNum: lineNum}}, msgs...)
+	}
+
+	return msgs
+}
+
+func extractArtifact(b contentBlock, ts time.Time, lineNum int, inc include.IncludeSet) *Message {
+	var filePath, content string
+
+	switch b.Name {
+	case "Write":
+		var inp writeInput
+		if err := json.Unmarshal(b.Input, &inp); err != nil || inp.FilePath == "" {
+			return nil
+		}
+		filePath = inp.FilePath
+		content = inp.Content
+	case "Edit":
+		var inp editInput
+		if err := json.Unmarshal(b.Input, &inp); err != nil || inp.FilePath == "" {
+			return nil
+		}
+		filePath = inp.FilePath
+		content = inp.OldString + "\n" + inp.NewString
+	case "NotebookEdit":
+		var inp notebookEditInput
+		if err := json.Unmarshal(b.Input, &inp); err != nil || inp.NotebookPath == "" {
+			return nil
+		}
+		filePath = inp.NotebookPath
+		content = inp.NewSource
+	default:
+		return nil
+	}
+
+	if !inc.MatchesScope(filePath) {
+		return nil
+	}
+
+	var text string
+	switch inc.ArtifactMatch {
+	case "path":
+		text = filePath
+	case "content":
+		text = content
+	default:
+		text = filePath + "\n" + content
+	}
+
+	return &Message{
+		Role:      "artifact",
+		Text:      text,
+		FilePath:  filePath,
+		ToolName:  b.Name,
+		Timestamp: ts,
+		LineNum:   lineNum,
+	}
 }
 
 func parseTimestamp(s string) time.Time {
@@ -111,6 +242,7 @@ func Parse(path string, opts ParseOptions) (*Session, error) {
 	var lastUserMsg string
 	var lastTimestamp time.Time
 	lineNum := 0
+	artifactPathSet := make(map[string]bool)
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
@@ -140,20 +272,28 @@ func Parse(path string, opts ParseOptions) (*Session, error) {
 			continue
 		}
 
-		text := extractText(env.Content, opts.IncludeToolContent)
-		if text == "" {
-			continue
-		}
-
 		ts := parseTimestamp(entry.Timestamp)
 
 		if entry.Type == "user" {
+			text := extractTextOnly(env.Content)
+			if text == "" {
+				if !opts.MetadataOnly && opts.Include.ToolOutputs {
+					msgs := extractMessages(env.Content, entry.Type, ts, lineNum, opts.Include)
+					for _, m := range msgs {
+						if m.Role == "tool-output" {
+							s.Messages = append(s.Messages, m)
+						}
+					}
+				}
+				continue
+			}
 			if strings.TrimSpace(text) == "/clear" {
 				firstUserMsg = ""
 				firstTimestamp = time.Time{}
 				if !opts.MetadataOnly {
 					s.Messages = nil
 				}
+				artifactPathSet = make(map[string]bool)
 				continue
 			}
 			if firstUserMsg == "" {
@@ -162,17 +302,36 @@ func Parse(path string, opts ParseOptions) (*Session, error) {
 			}
 			lastUserMsg = text
 			lastTimestamp = ts
-		}
 
-		if !opts.MetadataOnly {
-			s.Messages = append(s.Messages, Message{
-				Role:      entry.Type,
-				Text:      text,
-				Timestamp: ts,
-				LineNum:   lineNum,
-			})
-		} else if entry.Type == "assistant" && !ts.IsZero() {
-			lastTimestamp = ts
+			if !opts.MetadataOnly {
+				s.Messages = append(s.Messages, Message{
+					Role:      entry.Type,
+					Text:      text,
+					Timestamp: ts,
+					LineNum:   lineNum,
+				})
+			}
+		} else {
+			if !opts.MetadataOnly {
+				msgs := extractMessages(env.Content, entry.Type, ts, lineNum, opts.Include)
+				for _, m := range msgs {
+					if m.Role == "artifact" {
+						artifactPathSet[m.FilePath] = true
+					}
+					s.Messages = append(s.Messages, m)
+				}
+			} else if !ts.IsZero() {
+				lastTimestamp = ts
+				// Even in metadata-only mode, scan for artifacts if needed
+				if opts.Include.Artifacts {
+					msgs := extractMessages(env.Content, entry.Type, ts, lineNum, opts.Include)
+					for _, m := range msgs {
+						if m.Role == "artifact" {
+							artifactPathSet[m.FilePath] = true
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -194,6 +353,10 @@ func Parse(path string, opts ParseOptions) (*Session, error) {
 	} else {
 		dirName := filepath.Base(filepath.Dir(path))
 		s.ProjectDir = decodeDirName(dirName)
+	}
+
+	for p := range artifactPathSet {
+		s.ArtifactPaths = append(s.ArtifactPaths, p)
 	}
 
 	return s, nil
@@ -283,7 +446,7 @@ func parseHead(path string) (firstMsg string, firstTime time.Time, cwd string, e
 		if err := json.Unmarshal(entry.Message, &env); err != nil {
 			continue
 		}
-		text := extractText(env.Content, false)
+		text := extractTextOnly(env.Content)
 		if text == "" || strings.TrimSpace(text) == "/clear" {
 			continue
 		}
@@ -345,7 +508,7 @@ func parseTail(path string) (lastTime time.Time, lastMsg string, err error) {
 			if err := json.Unmarshal(entry.Message, &env); err != nil {
 				continue
 			}
-			text := extractText(env.Content, false)
+			text := extractTextOnly(env.Content)
 			if text != "" && strings.TrimSpace(text) != "/clear" {
 				lastMsg = text
 			}

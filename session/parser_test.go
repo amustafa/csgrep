@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/amustafa/csgrep/include"
 )
 
 func testdataPath(name string) string {
@@ -101,7 +103,9 @@ func TestParseToolContentExcludedByDefault(t *testing.T) {
 }
 
 func TestParseToolContentIncluded(t *testing.T) {
-	s, err := Parse(testdataPath("sample-session.jsonl"), ParseOptions{IncludeToolContent: true})
+	s, err := Parse(testdataPath("sample-session.jsonl"), ParseOptions{
+		Include: include.FromAll(),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +116,7 @@ func TestParseToolContentIncluded(t *testing.T) {
 		}
 	}
 	if !foundToolInput {
-		t.Error("tool_use input should be included with IncludeToolContent")
+		t.Error("tool_use input should be included with ToolOutputs")
 	}
 }
 
@@ -160,6 +164,218 @@ func TestTruncateRunes(t *testing.T) {
 	got := truncate(emoji, 3)
 	if got != "👋🌍🎉..." {
 		t.Errorf("truncate emoji = %q, want %q", got, "👋🌍🎉...")
+	}
+}
+
+// Artifact tests
+
+func TestParseArtifactsExcludedByDefault(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" {
+			t.Error("artifacts should not appear without Include.Artifacts")
+		}
+	}
+}
+
+func TestParseArtifactsIncluded(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var artifacts []Message
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" {
+			artifacts = append(artifacts, msg)
+		}
+	}
+
+	// Should find Write (main.go), Edit (main.go), NotebookEdit (analysis.ipynb)
+	// Temp file (/tmp/debug-output.txt) excluded by default scope
+	// Plan file excluded by default scope (it's not under /tmp but IS a regular file)
+	if len(artifacts) != 4 {
+		t.Errorf("expected 4 artifacts (Write, Edit, Notebook, Plan), got %d", len(artifacts))
+		for _, a := range artifacts {
+			t.Logf("  artifact: %s %s", a.ToolName, a.FilePath)
+		}
+	}
+}
+
+func TestParseArtifactFields(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var writeArtifact *Message
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" && msg.ToolName == "Write" && msg.FilePath == "/home/user/myproject/main.go" {
+			writeArtifact = &msg
+			break
+		}
+	}
+	if writeArtifact == nil {
+		t.Fatal("Write artifact for main.go not found")
+	}
+	if writeArtifact.FilePath != "/home/user/myproject/main.go" {
+		t.Errorf("FilePath = %q", writeArtifact.FilePath)
+	}
+	if !contains(writeArtifact.Text, "hello world") {
+		t.Error("Write artifact text should contain file content")
+	}
+	if !contains(writeArtifact.Text, "main.go") {
+		t.Error("Write artifact text should contain file path")
+	}
+}
+
+func TestParseArtifactEdit(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var editArtifact *Message
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" && msg.ToolName == "Edit" {
+			editArtifact = &msg
+			break
+		}
+	}
+	if editArtifact == nil {
+		t.Fatal("Edit artifact not found")
+	}
+	if !contains(editArtifact.Text, "hello world") {
+		t.Error("Edit artifact should contain old_string")
+	}
+	if !contains(editArtifact.Text, "hello universe") {
+		t.Error("Edit artifact should contain new_string")
+	}
+}
+
+func TestParseArtifactScopeAll(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true, ArtifactScope: "all"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var artifacts []Message
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" {
+			artifacts = append(artifacts, msg)
+		}
+	}
+
+	// all scope: Write, Edit, Notebook, Temp, Plan = 5
+	if len(artifacts) != 5 {
+		t.Errorf("expected 5 artifacts with scope=all, got %d", len(artifacts))
+		for _, a := range artifacts {
+			t.Logf("  artifact: %s %s", a.ToolName, a.FilePath)
+		}
+	}
+}
+
+func TestParseArtifactScopeTemp(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true, ArtifactScope: "tmp"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var artifacts []Message
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" {
+			artifacts = append(artifacts, msg)
+		}
+	}
+	if len(artifacts) != 1 {
+		t.Errorf("expected 1 temp artifact, got %d", len(artifacts))
+	}
+	if len(artifacts) > 0 && artifacts[0].FilePath != "/tmp/debug-output.txt" {
+		t.Errorf("expected /tmp/debug-output.txt, got %s", artifacts[0].FilePath)
+	}
+}
+
+func TestParseArtifactMatchPath(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true, ArtifactMatch: "path"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" {
+			if contains(msg.Text, "hello world") {
+				t.Error("artifacts:path should not include file content")
+			}
+			if !contains(msg.Text, "/") {
+				t.Error("artifacts:path should contain file path")
+			}
+		}
+	}
+}
+
+func TestParseArtifactMatchContent(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true, ArtifactMatch: "content"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, msg := range s.Messages {
+		if msg.Role == "artifact" && msg.ToolName == "Write" && msg.FilePath == "/home/user/myproject/main.go" {
+			if contains(msg.Text, "main.go") {
+				t.Error("artifacts:content should not include file path in text")
+			}
+			if !contains(msg.Text, "hello world") {
+				t.Error("artifacts:content should include file content")
+			}
+		}
+	}
+}
+
+func TestParseArtifactPaths(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{Artifacts: true},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(s.ArtifactPaths) == 0 {
+		t.Error("ArtifactPaths should be populated")
+	}
+}
+
+func TestParseToolOutputsIncluded(t *testing.T) {
+	s, err := Parse(testdataPath("session-with-artifacts.jsonl"), ParseOptions{
+		Include: include.IncludeSet{ToolOutputs: true},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var toolOutputs []Message
+	for _, msg := range s.Messages {
+		if msg.Role == "tool-output" {
+			toolOutputs = append(toolOutputs, msg)
+		}
+	}
+	if len(toolOutputs) == 0 {
+		t.Error("tool outputs should be present with ToolOutputs=true")
 	}
 }
 

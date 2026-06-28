@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/amustafa/csgrep/include"
 	"github.com/amustafa/csgrep/output"
 	"github.com/amustafa/csgrep/pipe"
 	"github.com/amustafa/csgrep/search"
@@ -38,6 +39,7 @@ var (
 	flagGroupBy     string
 	flagNoGroupBy   bool
 	flagSessions    bool
+	flagInclude     string
 )
 
 var rootCmd = &cobra.Command{
@@ -92,6 +94,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&flagAll, "all", "a", false, "include tool call/result content in search")
 	rootCmd.Flags().Float64Var(&flagThreshold, "threshold", 0.3, "fuzzy match threshold (0.0-1.0)")
 	rootCmd.Flags().BoolVar(&flagSessions, "sessions", false, "pipe mode: use piped input as session scope (search all messages)")
+	rootCmd.Flags().StringVar(&flagInclude, "include", "", "content types to include: artifacts, artifacts:path, artifacts:content, artifacts:all, artifacts:tmp, artifacts:plans, tool-outputs")
 
 	rootCmd.Flags().StringVar(&flagSort, "sort", "", "sort results by field:dir pairs (e.g. timestamp:asc,score:desc)")
 	rootCmd.Flags().StringVar(&flagGroupBy, "group-by", "session_id", "group results by field (session_id, project_dir, role)")
@@ -189,6 +192,19 @@ func hasUpperCase(s string) bool {
 	return false
 }
 
+func buildIncludeSet() (include.IncludeSet, error) {
+	if flagAll && flagInclude != "" {
+		return include.IncludeSet{}, fmt.Errorf("cannot use --all and --include together")
+	}
+	if flagAll {
+		return include.FromAll(), nil
+	}
+	if flagInclude != "" {
+		return include.Parse(flagInclude)
+	}
+	return include.IncludeSet{}, nil
+}
+
 func runSearch(cmd *cobra.Command, args []string) error {
 	applyColorConfig()
 	pattern := args[0]
@@ -221,9 +237,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	useJSON := flagJSON || pipe.StdoutIsPiped()
 
+	inc, err := buildIncludeSet()
+	if err != nil {
+		return err
+	}
+
 	var matches []search.Match
 	if pipe.StdinIsPiped() {
-		matches, err = searchFromPipe(matcher)
+		matches, err = searchFromPipe(matcher, inc)
 		if err != nil {
 			return err
 		}
@@ -233,8 +254,8 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Searching %d sessions...\n", len(files))
 
 		opts := search.Options{
-			IncludeToolContent: flagAll,
-			Workers:            runtime.NumCPU(),
+			Include: inc,
+			Workers: runtime.NumCPU(),
 		}
 		matches = search.Run(files, matcher, opts)
 	}
@@ -285,7 +306,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func searchFromPipe(matcher search.Matcher) ([]search.Match, error) {
+func searchFromPipe(matcher search.Matcher, inc include.IncludeSet) ([]search.Match, error) {
 	pipedMatches, pipedSessions, err := pipe.ReadStdin()
 	if err != nil {
 		return nil, fmt.Errorf("reading pipe: %w", err)
@@ -323,8 +344,8 @@ func searchFromPipe(matcher search.Matcher) ([]search.Match, error) {
 
 	fmt.Fprintf(os.Stderr, "Searching %d sessions from pipe...\n", len(files))
 	opts := search.Options{
-		IncludeToolContent: flagAll,
-		Workers:            runtime.NumCPU(),
+		Include: inc,
+		Workers: runtime.NumCPU(),
 	}
 	return search.Run(files, matcher, opts), nil
 }

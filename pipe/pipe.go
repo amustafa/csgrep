@@ -20,6 +20,8 @@ type PipedMatch struct {
 	Score      float64  `json:"score"`
 	Offsets    [][2]int `json:"offsets,omitempty"`
 	Path       string   `json:"path,omitempty"`
+	FilePath   string   `json:"file_path,omitempty"`
+	ToolName   string   `json:"tool_name,omitempty"`
 }
 
 type PipedSession struct {
@@ -114,6 +116,8 @@ func MatchesToSearchMatches(piped []PipedMatch) []search.Match {
 				Text:      pm.Text,
 				Timestamp: ts,
 				LineNum:   pm.LineNum,
+				FilePath:  pm.FilePath,
+				ToolName:  pm.ToolName,
 			},
 			Score:   pm.Score,
 			Offsets: pm.Offsets,

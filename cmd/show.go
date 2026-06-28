@@ -139,8 +139,12 @@ func runShowFromPipe(args []string) error {
 }
 
 func parseSessionForShow(file string) (*session.Session, error) {
+	inc, err := buildIncludeSet()
+	if err != nil {
+		return nil, err
+	}
 	parseOpts := session.ParseOptions{
-		IncludeToolContent: flagAll,
+		Include: inc,
 	}
 	s, err := session.Parse(file, parseOpts)
 	if err != nil {

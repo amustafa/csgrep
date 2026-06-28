@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	ShowPath      bool
+	ShowArtifacts bool
 	ContextBefore int
 	ContextAfter  int
 	NoGroup       bool
@@ -22,10 +23,12 @@ var (
 	sessionColor = color.New(color.FgMagenta, color.Bold)
 	timeColor    = color.New(color.FgGreen)
 	dirColor     = color.New(color.FgCyan)
-	userColor    = color.New(color.FgBlue, color.Bold)
-	assistColor  = color.New(color.FgYellow)
-	lineNumColor = color.New(color.FgGreen)
-	dimColor     = color.New(color.Faint)
+	userColor     = color.New(color.FgBlue, color.Bold)
+	assistColor   = color.New(color.FgYellow)
+	artifactColor = color.New(color.FgGreen, color.Bold)
+	toolOutColor  = color.New(color.FgCyan)
+	lineNumColor  = color.New(color.FgGreen)
+	dimColor      = color.New(color.Faint)
 )
 
 func Terminal(w io.Writer, matches []search.Match, cfg Config) {
@@ -123,8 +126,26 @@ func TerminalSessions(w io.Writer, sessions []session.Session, cfg Config) {
 		}
 		fmt.Fprintf(w, "  %s%s %s\n", dimColor.Sprint("first:"), firstTs, truncateText(s.FirstMessage, 100))
 		fmt.Fprintf(w, "  %s %s %s\n", dimColor.Sprint("last:"), lastTs, truncateText(s.LastMessage, 100))
+		if cfg.ShowArtifacts && len(s.ArtifactPaths) > 0 {
+			paths := truncateList(s.ArtifactPaths, 5)
+			fmt.Fprintf(w, "  %s %s (%s)\n",
+				dimColor.Sprint("artifacts:"),
+				artifactColor.Sprintf("%d files", len(s.ArtifactPaths)),
+				dirColor.Sprint(strings.Join(paths, ", ")),
+			)
+		}
 		fmt.Fprintln(w)
 	}
+}
+
+func truncateList(items []string, max int) []string {
+	if len(items) <= max {
+		return items
+	}
+	result := make([]string, max)
+	copy(result, items[:max])
+	result = append(result, fmt.Sprintf("+%d more", len(items)-max))
+	return result
 }
 
 func TerminalConversation(w io.Writer, s *session.Session, messages []session.Message, highlighter search.Matcher) {
@@ -206,10 +227,7 @@ func printMatchesWithContext(w io.Writer, group []search.Match, cfg Config) {
 func printContextLine(w io.Writer, msg session.Message) {
 	text := session.CleanText(msg.Text)
 	snippet := snippetAround(text, 120)
-	role := "[user]  "
-	if msg.Role == "assistant" {
-		role = "[assist]"
-	}
+	role := fmt.Sprintf("[%-11s]", msg.Role)
 	fmt.Fprintf(w, "  %s\n",
 		dimColor.Sprintf("%s L%d: %s", role, msg.LineNum, snippet),
 	)
@@ -272,9 +290,15 @@ func printMatch(w io.Writer, m search.Match, cfg Config) {
 		scoreStr = dimColor.Sprintf(" [%.2f]", m.Score)
 	}
 
-	fmt.Fprintf(w, "  %s L%s: %s%s\n",
+	filePrefix := ""
+	if m.Message.FilePath != "" {
+		filePrefix = dirColor.Sprint(m.Message.FilePath) + ": "
+	}
+
+	fmt.Fprintf(w, "  %s L%s: %s%s%s\n",
 		roleTag,
 		lineNumColor.Sprintf("%d", m.Message.LineNum),
+		filePrefix,
 		snippet,
 		scoreStr,
 	)
@@ -307,11 +331,15 @@ func highlightInText(text string, offsets [][2]int, maxLen int) string {
 func formatRole(role string) string {
 	switch role {
 	case "user":
-		return userColor.Sprintf("[user]  ")
+		return userColor.Sprintf("[user]       ")
 	case "assistant":
-		return assistColor.Sprintf("[assist]")
+		return assistColor.Sprintf("[assist]     ")
+	case "artifact":
+		return artifactColor.Sprintf("[artifact]   ")
+	case "tool-output":
+		return toolOutColor.Sprintf("[tool-output]")
 	default:
-		return dimColor.Sprintf("[%s]", role)
+		return dimColor.Sprintf("[%-11s]", role)
 	}
 }
 

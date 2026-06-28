@@ -46,6 +46,22 @@ This succeeds if the protocol is registered (including via the skeleton fallback
 - **Plans**: `codev/plans/` - Implementation plans (HOW to build)
 - **Reviews**: `codev/reviews/` - Reviews and lessons learned
 - **Protocols**: `codev/protocols/` - Development protocols
+- **Ubiquitous Language**: `codev/UBIQUITOUS_LANGUAGE.md` - Domain glossary
+- **ADRs**: `codev/adr/` - Architecture Decision Records
+
+## Domain Documentation
+
+### Ubiquitous Language (`codev/UBIQUITOUS_LANGUAGE.md`)
+
+A glossary of project-specific terms — what they mean, what to avoid calling them, and how they relate to each other. No implementation details, no specs, just terminology.
+
+**When to update**: when a term is resolved during design discussion, when you notice ambiguous or overloaded language, or when a new domain concept is introduced. Update inline as terms are resolved — don't batch.
+
+### Architecture Decision Records (`codev/adr/`)
+
+Short records of decisions that are hard to reverse, surprising without context, and the result of a real trade-off. Sequential numbering: `0001-slug.md`, `0002-slug.md`.
+
+**When to write**: only when all three are true: (1) hard to reverse, (2) a future reader would wonder "why?", (3) genuine alternatives existed. Most decisions don't qualify — skip the ADR if any condition is missing.
 
 ## Working with Project Labels
 

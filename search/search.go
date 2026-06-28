@@ -3,6 +3,7 @@ package search
 import (
 	"sync"
 
+	"github.com/amustafa/csgrep/include"
 	"github.com/amustafa/csgrep/session"
 )
 
@@ -19,8 +20,8 @@ type Match struct {
 }
 
 type Options struct {
-	IncludeToolContent bool
-	Workers            int
+	Include include.IncludeSet
+	Workers int
 }
 
 func Run(files []string, matcher Matcher, opts Options) []Match {
@@ -44,7 +45,7 @@ func Run(files []string, matcher Matcher, opts Options) []Match {
 			defer wg.Done()
 			for path := range fileCh {
 				parseOpts := session.ParseOptions{
-					IncludeToolContent: opts.IncludeToolContent,
+					Include: opts.Include,
 				}
 				s, err := session.Parse(path, parseOpts)
 				if err != nil || s == nil {
