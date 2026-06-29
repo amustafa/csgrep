@@ -200,6 +200,44 @@ func FilterWithRg(files []string, pattern string) []string {
 	return filtered
 }
 
+func FindClearFiles(files []string) map[string]bool {
+	if len(files) == 0 {
+		return nil
+	}
+
+	dirs := make(map[string]bool)
+	fileSet := make(map[string]bool, len(files))
+	for _, f := range files {
+		fileSet[f] = true
+		dirs[filepath.Dir(f)] = true
+	}
+
+	args := []string{"-l", "--glob", "*.jsonl", `"/clear"`}
+	for d := range dirs {
+		args = append(args, d)
+	}
+
+	cmd := exec.Command("rg", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil
+	}
+	if err := cmd.Start(); err != nil {
+		return nil
+	}
+
+	result := make(map[string]bool)
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		path := scanner.Text()
+		if fileSet[path] {
+			result[path] = true
+		}
+	}
+	cmd.Wait()
+	return result
+}
+
 func resolveDir(d string) string {
 	if strings.HasPrefix(d, "~") {
 		home, _ := os.UserHomeDir()

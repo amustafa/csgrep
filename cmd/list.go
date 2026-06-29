@@ -64,26 +64,47 @@ func runList(cmd *cobra.Command, args []string) error {
 	files := session.FindFiles(filter)
 	fmt.Fprintf(os.Stderr, "Scanning %d sessions...\n", len(files))
 
-	parseOpts := session.ParseOptions{
-		MetadataOnly: !needArtifacts,
-	}
-	if needArtifacts {
-		parseOpts.Include = include.IncludeSet{Artifacts: true}
-	}
+	useFastPath := !needArtifacts && os.Getenv("CSGREP_NO_DEPS") != "1" && session.RgAvailable()
 
 	var sessions []session.Session
-	for _, f := range files {
-		s, err := session.Parse(f, parseOpts)
-		if err != nil || s == nil {
-			continue
+	if useFastPath {
+		clearFiles := session.FindClearFiles(files)
+		for _, f := range files {
+			var s *session.Session
+			var err error
+			if clearFiles[f] {
+				s, err = session.Parse(f, session.ParseOptions{MetadataOnly: true})
+			} else {
+				s, err = session.ParseFast(f)
+			}
+			if err != nil || s == nil {
+				continue
+			}
+			if !filter.Matches(s) {
+				continue
+			}
+			sessions = append(sessions, *s)
 		}
-		if !filter.Matches(s) {
-			continue
+	} else {
+		parseOpts := session.ParseOptions{
+			MetadataOnly: !needArtifacts,
 		}
-		if flagHas == "artifacts" && len(s.ArtifactPaths) == 0 {
-			continue
+		if needArtifacts {
+			parseOpts.Include = include.IncludeSet{Artifacts: true}
 		}
-		sessions = append(sessions, *s)
+		for _, f := range files {
+			s, err := session.Parse(f, parseOpts)
+			if err != nil || s == nil {
+				continue
+			}
+			if !filter.Matches(s) {
+				continue
+			}
+			if flagHas == "artifacts" && len(s.ArtifactPaths) == 0 {
+				continue
+			}
+			sessions = append(sessions, *s)
+		}
 	}
 
 	sort.Slice(sessions, func(i, j int) bool {

@@ -252,12 +252,13 @@ Benchmarked on ~2700 sessions (636 MB of JSONL):
 
 | Operation | Without rg | With rg |
 |-----------|------------|---------|
-| `csgrep list` (project) | ~200ms | — |
+| `csgrep list -g` (all ~2700 sessions) | ~8.3s | **~1.2s (7x)** |
+| `csgrep list` (project, 66 sessions) | ~200ms | **~37ms (5.5x)** |
 | `csgrep "pattern" -g` (global) | ~700ms | ~500-700ms |
-| `csgrep "rare" -g` (rare pattern) | ~700ms | **~75ms (9x)** |
-| `csgrep -f "typo" -g` (fuzzy) | ~2.5s | — |
+| `csgrep "rare" -g` (rare pattern) | ~750ms | **~90ms (8x)** |
+| `csgrep -f "typo" -g` (fuzzy) | ~2.5s | ~2.5s |
 
-When [ripgrep](https://github.com/BurntSushi/ripgrep) is installed, csgrep automatically uses it as a pre-filter — scanning all files in ~35ms to eliminate non-matching sessions before JSON parsing. Biggest wins on rare/specific patterns. Set `CSGREP_NO_DEPS=1` to disable.
+When [ripgrep](https://github.com/BurntSushi/ripgrep) is installed, csgrep automatically uses it for acceleration. For search, `rg` pre-filters files in ~35ms. For list, `ParseFast` reads only head/tail of each file while `rg` identifies the few sessions with `/clear` for full parsing. Set `CSGREP_NO_DEPS=1` to disable.
 
 See [docs/bench-results.md](docs/bench-results.md) for detailed results.
 

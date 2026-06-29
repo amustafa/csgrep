@@ -3,30 +3,31 @@
 System: Linux, Go 1.25, ripgrep 14.1.1, 5 runs per operation.
 Dataset: ~2700 session files, ~636 MB total JSONL.
 
-## Scanner vs rg pre-filter
+## Default (with rg) vs CSGREP_NO_DEPS=1
 
-| Operation | Scanner | rg pre-filter | Speedup |
-|-----------|---------|---------------|---------|
-| list (all) | 5793ms | 6817ms | (n/a — list doesn't use rg) |
-| list (project) | 218ms | 316ms | (n/a) |
-| search: "auth" (global) | 828ms | 736ms | 1.1x |
-| search: "migration" (global) | 761ms | 616ms | 1.2x |
-| search: "database" (global) | 724ms | 468ms | **1.5x** |
-| search: "MADV_SEQUENTIAL" (rare) | 699ms | 76ms | **9.2x** |
-| search: fuzzy "databse" (global) | 2687ms | 2471ms | (fuzzy skips rg) |
+| Operation | No deps | With rg | Speedup |
+|-----------|---------|---------|---------|
+| list (all, ~2700 sessions) | 8295ms | 1181ms | **7.0x** |
+| list (project, 66 sessions) | 202ms | 37ms | **5.5x** |
+| search: "auth" (global) | 752ms | 793ms | ~1x |
+| search: "migration" (global) | 808ms | 581ms | 1.4x |
+| search: "database" (global) | 716ms | 507ms | 1.4x |
+| search: "MADV_SEQUENTIAL" (rare) | 753ms | 91ms | **8.3x** |
+| search: fuzzy "databse" (global) | 2571ms | 2603ms | ~1x |
 
 ## How it works
 
-With `CSGREP_USE_RG=1`, csgrep shells out to `rg -l` (ripgrep in file-list mode)
-to find which JSONL files contain the pattern before parsing them. This skips
-JSON parsing entirely for files that can't possibly match.
+By default (when `rg` is installed), csgrep uses external tools for acceleration:
 
-- **Rare patterns** see the biggest wins — rg scans 636 MB in ~35ms and eliminates
-  most files, so csgrep only parses a handful.
-- **Common patterns** that appear in most files see modest improvement since fewer
-  files are skipped.
-- **Fuzzy search** skips the rg pre-filter (rg doesn't do trigram matching).
-- **List** is unaffected — it uses head/tail reads, not full parsing.
+**Search**: `rg -l` scans all 636 MB in ~35ms to find which files contain the
+pattern. csgrep then only JSON-parses matching files. Rare patterns see the
+biggest wins (8x) since most files are skipped entirely.
+
+**List**: Uses `ParseFast` (head/tail reads only, ~114KB per file) instead of
+full-file parsing. `rg` identifies the ~5 files containing `/clear` so only
+those get full-parsed for correct first-message extraction.
+
+Set `CSGREP_NO_DEPS=1` to disable external tools and use pure Go parsing.
 
 ## Previous experiments
 
