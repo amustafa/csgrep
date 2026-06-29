@@ -225,6 +225,141 @@ func parseTimestamp(s string) time.Time {
 	return time.Time{}
 }
 
+const mmapThreshold = 256 * 1024
+
+var mmapMinSize = mmapThreshold
+
+type parseState struct {
+	session         *Session
+	opts            ParseOptions
+	firstUserMsg    string
+	firstTimestamp  time.Time
+	lastUserMsg     string
+	lastTimestamp   time.Time
+	artifactPathSet map[string]bool
+}
+
+func newParseState(path string, opts ParseOptions) *parseState {
+	return &parseState{
+		session: &Session{
+			ID:   strings.TrimSuffix(filepath.Base(path), ".jsonl"),
+			Path: path,
+		},
+		opts:            opts,
+		artifactPathSet: make(map[string]bool),
+	}
+}
+
+func (ps *parseState) processLine(line []byte, lineNum int) {
+	var entry jsonEntry
+	if err := json.Unmarshal(line, &entry); err != nil {
+		return
+	}
+
+	s := ps.session
+	if entry.CWD != "" && s.CWD == "" {
+		s.CWD = entry.CWD
+	}
+	if entry.Entrypoint != "" && s.Entrypoint == "" {
+		s.Entrypoint = entry.Entrypoint
+	}
+
+	if entry.Type != "user" && entry.Type != "assistant" {
+		return
+	}
+
+	var env messageEnvelope
+	if err := json.Unmarshal(entry.Message, &env); err != nil {
+		return
+	}
+
+	ts := parseTimestamp(entry.Timestamp)
+
+	if entry.Type == "user" {
+		text := extractTextOnly(env.Content)
+		if text == "" {
+			if !ps.opts.MetadataOnly && ps.opts.Include.ToolOutputs {
+				msgs := extractMessages(env.Content, entry.Type, ts, lineNum, ps.opts.Include)
+				for _, m := range msgs {
+					if m.Role == "tool-output" {
+						s.Messages = append(s.Messages, m)
+					}
+				}
+			}
+			return
+		}
+		if strings.TrimSpace(text) == "/clear" {
+			ps.firstUserMsg = ""
+			ps.firstTimestamp = time.Time{}
+			if !ps.opts.MetadataOnly {
+				s.Messages = nil
+			}
+			ps.artifactPathSet = make(map[string]bool)
+			return
+		}
+		if ps.firstUserMsg == "" {
+			ps.firstUserMsg = text
+			ps.firstTimestamp = ts
+		}
+		ps.lastUserMsg = text
+		ps.lastTimestamp = ts
+
+		if !ps.opts.MetadataOnly {
+			s.Messages = append(s.Messages, Message{
+				Role:      entry.Type,
+				Text:      text,
+				Timestamp: ts,
+				LineNum:   lineNum,
+			})
+		}
+	} else {
+		if !ps.opts.MetadataOnly {
+			msgs := extractMessages(env.Content, entry.Type, ts, lineNum, ps.opts.Include)
+			for _, m := range msgs {
+				if m.Role == "artifact" {
+					ps.artifactPathSet[m.FilePath] = true
+				}
+				s.Messages = append(s.Messages, m)
+			}
+		} else if !ts.IsZero() {
+			ps.lastTimestamp = ts
+			if ps.opts.Include.Artifacts {
+				msgs := extractMessages(env.Content, entry.Type, ts, lineNum, ps.opts.Include)
+				for _, m := range msgs {
+					if m.Role == "artifact" {
+						ps.artifactPathSet[m.FilePath] = true
+					}
+				}
+			}
+		}
+	}
+}
+
+func (ps *parseState) finalize() (*Session, error) {
+	if ps.lastUserMsg == "" {
+		return nil, nil
+	}
+
+	s := ps.session
+	s.FirstMessage = truncate(CleanText(ps.firstUserMsg), 120)
+	s.FirstTime = ps.firstTimestamp
+	s.LastMessage = truncate(CleanText(ps.lastUserMsg), 120)
+	s.LastTime = ps.lastTimestamp
+
+	if s.CWD != "" {
+		s.ProjectDir = s.CWD
+	} else {
+		dirName := filepath.Base(filepath.Dir(s.Path))
+		s.ProjectDir = decodeDirName(dirName)
+	}
+
+	for p := range ps.artifactPathSet {
+		s.ArtifactPaths = append(s.ArtifactPaths, p)
+	}
+
+	return s, nil
+}
+
 func Parse(path string, opts ParseOptions) (*Session, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -232,134 +367,48 @@ func Parse(path string, opts ParseOptions) (*Session, error) {
 	}
 	defer f.Close()
 
-	s := &Session{
-		ID:   strings.TrimSuffix(filepath.Base(path), ".jsonl"),
-		Path: path,
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+
+	if size > 0 && size >= int64(mmapMinSize) {
+		if data, err := mmapFile(f, int(size)); err == nil {
+			defer munmapFile(data)
+			return parseMmap(path, data, opts)
+		}
 	}
 
-	var firstUserMsg string
-	var firstTimestamp time.Time
-	var lastUserMsg string
-	var lastTimestamp time.Time
-	lineNum := 0
-	artifactPathSet := make(map[string]bool)
+	return parseScanner(path, f, opts)
+}
+
+func parseMmap(path string, data []byte, opts ParseOptions) (*Session, error) {
+	ps := newParseState(path, opts)
+	scanLines(data, func(line []byte, lineNum int) bool {
+		ps.processLine(line, lineNum)
+		return true
+	})
+	return ps.finalize()
+}
+
+func parseScanner(path string, f *os.File, opts ParseOptions) (*Session, error) {
+	ps := newParseState(path, opts)
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
 
+	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
-		line := scanner.Bytes()
-
-		var entry jsonEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
-			continue
-		}
-
-		if entry.CWD != "" && s.CWD == "" {
-			s.CWD = entry.CWD
-		}
-		if entry.Entrypoint != "" && s.Entrypoint == "" {
-			s.Entrypoint = entry.Entrypoint
-		}
-
-		if entry.Type != "user" && entry.Type != "assistant" {
-			continue
-		}
-
-		var env messageEnvelope
-		if err := json.Unmarshal(entry.Message, &env); err != nil {
-			continue
-		}
-
-		ts := parseTimestamp(entry.Timestamp)
-
-		if entry.Type == "user" {
-			text := extractTextOnly(env.Content)
-			if text == "" {
-				if !opts.MetadataOnly && opts.Include.ToolOutputs {
-					msgs := extractMessages(env.Content, entry.Type, ts, lineNum, opts.Include)
-					for _, m := range msgs {
-						if m.Role == "tool-output" {
-							s.Messages = append(s.Messages, m)
-						}
-					}
-				}
-				continue
-			}
-			if strings.TrimSpace(text) == "/clear" {
-				firstUserMsg = ""
-				firstTimestamp = time.Time{}
-				if !opts.MetadataOnly {
-					s.Messages = nil
-				}
-				artifactPathSet = make(map[string]bool)
-				continue
-			}
-			if firstUserMsg == "" {
-				firstUserMsg = text
-				firstTimestamp = ts
-			}
-			lastUserMsg = text
-			lastTimestamp = ts
-
-			if !opts.MetadataOnly {
-				s.Messages = append(s.Messages, Message{
-					Role:      entry.Type,
-					Text:      text,
-					Timestamp: ts,
-					LineNum:   lineNum,
-				})
-			}
-		} else {
-			if !opts.MetadataOnly {
-				msgs := extractMessages(env.Content, entry.Type, ts, lineNum, opts.Include)
-				for _, m := range msgs {
-					if m.Role == "artifact" {
-						artifactPathSet[m.FilePath] = true
-					}
-					s.Messages = append(s.Messages, m)
-				}
-			} else if !ts.IsZero() {
-				lastTimestamp = ts
-				// Even in metadata-only mode, scan for artifacts if needed
-				if opts.Include.Artifacts {
-					msgs := extractMessages(env.Content, entry.Type, ts, lineNum, opts.Include)
-					for _, m := range msgs {
-						if m.Role == "artifact" {
-							artifactPathSet[m.FilePath] = true
-						}
-					}
-				}
-			}
-		}
+		ps.processLine(scanner.Bytes(), lineNum)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	if lastUserMsg == "" {
-		return nil, nil
-	}
-
-	s.FirstMessage = truncate(CleanText(firstUserMsg), 120)
-	s.FirstTime = firstTimestamp
-	s.LastMessage = truncate(CleanText(lastUserMsg), 120)
-	s.LastTime = lastTimestamp
-
-	if s.CWD != "" {
-		s.ProjectDir = s.CWD
-	} else {
-		dirName := filepath.Base(filepath.Dir(path))
-		s.ProjectDir = decodeDirName(dirName)
-	}
-
-	for p := range artifactPathSet {
-		s.ArtifactPaths = append(s.ArtifactPaths, p)
-	}
-
-	return s, nil
+	return ps.finalize()
 }
 
 const (
