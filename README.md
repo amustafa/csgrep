@@ -248,11 +248,18 @@ The "first message" shown in `list` output is the first user message after the l
 
 ## Performance
 
-On a typical session history (~2000 sessions, ~150k JSONL lines):
+Benchmarked on 2724 sessions (636 MB of JSONL, largest file 27 MB):
 
-- `csgrep list`: scans all sessions in under 2 seconds
-- `csgrep "pattern"`: parallel regex search completes in under 1 second
-- Compared to the Python predecessor: ~2.5x faster wall-clock time
+| Operation | Time |
+|-----------|------|
+| `csgrep list` (66 project sessions) | ~200ms |
+| `csgrep "pattern" -g` (global regex) | ~700ms |
+| `csgrep -f "typo" -g` (global fuzzy) | ~2.5s |
+| `csgrep list -g` (all 2724 sessions) | ~7.5s |
+
+Searches parallelize across CPU cores with a goroutine worker pool.
+
+See [docs/bench-results.md](docs/bench-results.md) for detailed results.
 
 ## License
 
