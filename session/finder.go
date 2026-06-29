@@ -168,36 +168,12 @@ func FilterWithRg(files []string, pattern string) []string {
 		dirs[filepath.Dir(f)] = true
 	}
 
-	args := []string{"-l", "--glob", "*.jsonl", pattern}
+	args := []string{"-l", "--glob", "*.jsonl", pattern, "--"}
 	for d := range dirs {
 		args = append(args, d)
 	}
 
-	cmd := exec.Command("rg", args...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return files
-	}
-	if err := cmd.Start(); err != nil {
-		return files
-	}
-
-	var filtered []string
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		path := scanner.Text()
-		if fileSet[path] {
-			filtered = append(filtered, path)
-		}
-	}
-
-	cmd.Wait()
-
-	if len(filtered) == 0 && cmd.ProcessState.ExitCode() == 2 {
-		return files
-	}
-
-	return filtered
+	return runRgList(args, files)
 }
 
 func FindClearFiles(files []string) map[string]bool {
@@ -212,29 +188,52 @@ func FindClearFiles(files []string) map[string]bool {
 		dirs[filepath.Dir(f)] = true
 	}
 
-	args := []string{"-l", "--glob", "*.jsonl", `"/clear"`}
+	args := []string{"-l", "--glob", "*.jsonl", `"/clear"`, "--"}
 	for d := range dirs {
 		args = append(args, d)
+	}
+
+	result := runRgList(args, files)
+	if result == nil {
+		return nil
+	}
+	m := make(map[string]bool, len(result))
+	for _, f := range result {
+		m[f] = true
+	}
+	return m
+}
+
+func runRgList(args []string, allowed []string) []string {
+	allowSet := make(map[string]bool, len(allowed))
+	for _, f := range allowed {
+		allowSet[f] = true
 	}
 
 	cmd := exec.Command("rg", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil
+		return allowed
 	}
 	if err := cmd.Start(); err != nil {
-		return nil
+		return allowed
 	}
 
-	result := make(map[string]bool)
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		path := scanner.Text()
-		if fileSet[path] {
-			result[path] = true
+	var result []string
+	sc := bufio.NewScanner(stdout)
+	for sc.Scan() {
+		path := sc.Text()
+		if allowSet[path] {
+			result = append(result, path)
 		}
 	}
+
 	cmd.Wait()
+
+	if len(result) == 0 && cmd.ProcessState.ExitCode() == 2 {
+		return allowed
+	}
+
 	return result
 }
 
