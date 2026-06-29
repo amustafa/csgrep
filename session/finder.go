@@ -1,8 +1,10 @@
 package session
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -147,6 +149,55 @@ func globJSONL(dir string) []string {
 		return nil
 	}
 	return matches
+}
+
+func RgAvailable() bool {
+	_, err := exec.LookPath("rg")
+	return err == nil
+}
+
+func FilterWithRg(files []string, pattern string) []string {
+	if len(files) == 0 {
+		return files
+	}
+
+	dirs := make(map[string]bool)
+	fileSet := make(map[string]bool, len(files))
+	for _, f := range files {
+		fileSet[f] = true
+		dirs[filepath.Dir(f)] = true
+	}
+
+	args := []string{"-l", "--glob", "*.jsonl", pattern}
+	for d := range dirs {
+		args = append(args, d)
+	}
+
+	cmd := exec.Command("rg", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return files
+	}
+	if err := cmd.Start(); err != nil {
+		return files
+	}
+
+	var filtered []string
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		path := scanner.Text()
+		if fileSet[path] {
+			filtered = append(filtered, path)
+		}
+	}
+
+	cmd.Wait()
+
+	if len(filtered) == 0 && cmd.ProcessState.ExitCode() == 2 {
+		return files
+	}
+
+	return filtered
 }
 
 func resolveDir(d string) string {

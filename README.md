@@ -248,16 +248,16 @@ The "first message" shown in `list` output is the first user message after the l
 
 ## Performance
 
-Benchmarked on 2724 sessions (636 MB of JSONL, largest file 27 MB):
+Benchmarked on ~2700 sessions (636 MB of JSONL):
 
-| Operation | Time |
-|-----------|------|
-| `csgrep list` (66 project sessions) | ~200ms |
-| `csgrep "pattern" -g` (global regex) | ~700ms |
-| `csgrep -f "typo" -g` (global fuzzy) | ~2.5s |
-| `csgrep list -g` (all 2724 sessions) | ~7.5s |
+| Operation | Default | With `CSGREP_USE_RG=1` |
+|-----------|---------|------------------------|
+| `csgrep list` (project) | ~200ms | — |
+| `csgrep "pattern" -g` (global) | ~700ms | ~500-700ms |
+| `csgrep "rare" -g` (rare pattern) | ~700ms | **~75ms (9x)** |
+| `csgrep -f "typo" -g` (fuzzy) | ~2.5s | — |
 
-Searches parallelize across CPU cores with a goroutine worker pool.
+Set `CSGREP_USE_RG=1` to use [ripgrep](https://github.com/BurntSushi/ripgrep) as a pre-filter. rg scans all files in ~35ms to eliminate non-matching sessions before JSON parsing. Biggest wins on rare/specific patterns; falls back silently if rg isn't installed.
 
 See [docs/bench-results.md](docs/bench-results.md) for detailed results.
 

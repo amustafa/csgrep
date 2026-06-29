@@ -251,7 +251,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	} else {
 		filter := buildFilter()
 		files := session.FindFiles(filter)
-		fmt.Fprintf(os.Stderr, "Searching %d sessions...\n", len(files))
+
+		if os.Getenv("CSGREP_USE_RG") == "1" && !flagFuzzy && session.RgAvailable() {
+			before := len(files)
+			files = session.FilterWithRg(files, pattern)
+			fmt.Fprintf(os.Stderr, "Searching %d sessions (rg filtered %d → %d)...\n", len(files), before, len(files))
+		} else {
+			fmt.Fprintf(os.Stderr, "Searching %d sessions...\n", len(files))
+		}
 
 		opts := search.Options{
 			Include: inc,

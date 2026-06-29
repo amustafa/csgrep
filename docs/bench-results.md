@@ -1,36 +1,38 @@
 # Benchmark Results
 
-Measured on 2724 session files (636 MB total).
-System: Linux, Go 1.25.
+System: Linux, Go 1.25, ripgrep 14.1.1, 5 runs per operation.
+Dataset: ~2700 session files, ~636 MB total JSONL.
 
-## Wall-clock (5 runs each)
+## Scanner vs rg pre-filter
 
-| Operation | Scanner | Mmap |
-|-----------|---------|------|
-| list (all, 2724 sessions) | 7478ms | 8306ms |
-| list (project, 66 sessions) | 200ms | 219ms |
-| search: "auth" (global) | 754ms | 692ms |
-| search: "migration" (global) | 775ms | 740ms |
-| search: "database" (global) | 732ms | 724ms |
-| search: fuzzy "databse" (global) | 2564ms | 2744ms |
+| Operation | Scanner | rg pre-filter | Speedup |
+|-----------|---------|---------------|---------|
+| list (all) | 5793ms | 6817ms | (n/a — list doesn't use rg) |
+| list (project) | 218ms | 316ms | (n/a) |
+| search: "auth" (global) | 828ms | 736ms | 1.1x |
+| search: "migration" (global) | 761ms | 616ms | 1.2x |
+| search: "database" (global) | 724ms | 468ms | **1.5x** |
+| search: "MADV_SEQUENTIAL" (rare) | 699ms | 76ms | **9.2x** |
+| search: fuzzy "databse" (global) | 2687ms | 2471ms | (fuzzy skips rg) |
 
-## Heap allocation (search "auth", 2233 files)
+## How it works
 
-| Metric | Scanner | Mmap | Delta |
-|--------|---------|------|-------|
-| Wall clock | 683ms | 677ms | -1% |
-| Total allocs | 5950 MB | 5634 MB | -5% |
-| Heap in use | 300.8 MB | 372.7 MB | +24% |
-| Heap objects | 75,937 | 298,070 | +293% |
-| GC cycles | 71 | 84 | +18% |
-| GC pause total | 29ms | 34ms | +15% |
+With `CSGREP_USE_RG=1`, csgrep shells out to `rg -l` (ripgrep in file-list mode)
+to find which JSONL files contain the pattern before parsing them. This skips
+JSON parsing entirely for files that can't possibly match.
 
-## Conclusion
+- **Rare patterns** see the biggest wins — rg scans 636 MB in ~35ms and eliminates
+  most files, so csgrep only parses a handful.
+- **Common patterns** that appear in most files see modest improvement since fewer
+  files are skipped.
+- **Fuzzy search** skips the rg pre-filter (rg doesn't do trigram matching).
+- **List** is unaffected — it uses head/tail reads, not full parsing.
 
-Mmap saved ~300 MB in total allocations (no scanner buffers) but the
-`parseState` struct refactor caused 4x more heap objects, more GC cycles,
-and longer GC pauses. Net effect was negative. **Mmap was reverted.**
+## Previous experiments
 
-The bottleneck is `json.Unmarshal` per line, not file I/O. Future
-optimization should target the JSON parsing layer (e.g. `jsoniter`,
-hand-rolled field extraction, or pre-filtering lines before unmarshaling).
+### mmap (reverted)
+
+Memory-mapped I/O was tested and reverted. The `parseState` struct refactor
+needed to share code between scanner and mmap paths caused 4x more heap objects
+and 18% more GC cycles, negating the allocation savings. The bottleneck is
+`json.Unmarshal`, not file I/O.
